@@ -35,9 +35,9 @@ var sequenceData = P.seq(number, P.seq(bang.or(div), P.seq(number, comma.then(nu
     let result = [{ time: 0, set: r[0] }];
     for(let op of r[1]) {
         if(op[0] === '!') {
-            result.push({ time: op[1][0], set: op[1][1] });
+            result.push({ time: op[1][1], set: op[1][0] });
         } else {
-            result.push({ time: op[1][0], slide: op[1][1] });
+            result.push({ time: op[1][1], slide: op[1][0] });
         }
     }
     return result;
