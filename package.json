@@ -1,0 +1,19 @@
+{
+  "name": "sfxedit",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Dennis Ranke",
+  "license": "MIT",
+  "devDependencies": {
+    "babel-core": "^5.0.12",
+    "babel-loader": "^5.0.0",
+    "babel-runtime": "^5.0.12",
+    "brace": "^0.5.1",
+    "parsimmon": "^0.7.0",
+    "webpack": "^1.8.4"
+  }
+}
