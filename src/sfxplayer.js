@@ -13,32 +13,6 @@ export default function SfxPlayer(data, webAudio) {
         oneData[i] = 1;
     }
 
-    function compileParam(ctx, node, param, scale) {
-        if(Array.isArray(node)) {
-            scale = scale || 1;
-            for(var i = 0; i < node.length; ++i) {
-                var cmd = node[i];
-                var time = ctx.start + cmd.time / 60;
-                if(cmd.set !== undefined) {
-                    param.setValueAtTime(cmd.set * scale, time);
-                } else {
-                    param.linearRampToValueAtTime(cmd.slide * scale, time);
-                }
-            }
-        } else if(typeof(node) === 'number') {
-            param.value = node;
-        } else {
-            var input = compile(ctx, node);
-            if(scale) {
-                var gain = webAudio.createGain();
-                input.connect(gain);
-                gain.gain.value = scale;
-                input = gain;
-            }
-            input.connect(param);
-        }
-    }
-
     function one(ctx) {
         if(!ctx.one) {
             ctx.one = webAudio.createBufferSource();
@@ -48,43 +22,6 @@ export default function SfxPlayer(data, webAudio) {
             ctx.one.stop(ctx.end);
         }
         return ctx.one;
-    }
-
-    function compile(ctx, node) {
-        if(Array.isArray(node) || typeof(node) === 'number') {
-            var result = webAudio.createGain();
-            one(ctx).connect(result);
-            compileParam(ctx, node, result.gain);
-            return result;
-        } else if(node.op) {
-            switch(node.op) {
-            case '*':
-                var left = compile(ctx, node.left);
-                var result = webAudio.createGain();
-                left.connect(result);
-                compileParam(ctx, node.right, result.gain);
-                return result;
-            case '+':
-                var result = webAudio.createGain();
-                compile(ctx, node.left).connect(result);
-                compile(ctx, node.right).connect(result);
-                return result;
-            }
-        } else if(node.call) {
-            switch(node.call) {
-            case 'sine':
-            case 'triangle':
-            case 'sawtooth':
-            case 'square':
-                var result = webAudio.createOscillator();
-                result.type = node.call;
-                result.frequency.value = node.params[1] || 440;
-                compileParam(ctx, node.params[0], result.detune, 100);
-                result.start(ctx.start);
-                result.stop(ctx.end);
-                return result;
-            }
-        }
     }
 
     function calcDuration(node) {
@@ -99,19 +36,112 @@ export default function SfxPlayer(data, webAudio) {
         }
         return duration;
     }
+
+    function compileParam(node, scale) {
+        if(Array.isArray(node)) {
+            scale = scale || 1;
+            return function(ctx, param) {
+                for(var i = 0; i < node.length; ++i) {
+                    var cmd = node[i];
+                    var time = ctx.start + cmd.time / 60;
+                    if(cmd.set !== undefined) {
+                        param.setValueAtTime(cmd.set * scale, time);
+                    } else {
+                        param.linearRampToValueAtTime(cmd.slide * scale, time);
+                    }
+                }
+            };
+        } else if(typeof(node) === 'number') {
+            var value = node * (scale || 1);
+            return function(ctx, param) {
+                param.value = value;
+            };
+        } else {
+            var input = compileInput(node);
+            if(scale) {
+                return function(ctx, param) {
+                    var gain = webAudio.createGain();
+                    input(ctx, gain);
+                    gain.gain.value = scale;
+                    gain.connect(param);
+                };
+            } else {
+                return function(ctx, param) {
+                    input(ctx, param);
+                };
+            }
+        }
+    }
+
+    function compileInput(node) {
+        if(Array.isArray(node) || typeof(node) === 'number') {
+            var param = compileParam(node);
+            return function(ctx, out) {
+                var gain = webAudio.createGain();
+                one(ctx).connect(gain);
+                param(ctx, gain.gain);
+                gain.connect(out);
+            };
+        } else if(node.op) {
+            switch(node.op) {
+            case '*':
+                var left = compileInput(node.left);
+                var right = compileParam(node.right);
+                return function(ctx, out) {
+                    var gain = webAudio.createGain();
+                    left(ctx, gain);
+                    right(ctx, gain.gain);
+                    gain.connect(out);
+                };
+            case '+':
+                var left = compileInput(node.left);
+                var right = compileInput(node.right);
+                return function(ctx, out) {
+                    left(ctx, out);
+                    right(ctx, out);
+                };
+            default:
+                throw 'Unsupported operator: ' + node.op;
+            }
+        } else {
+            switch(node.call) {
+            case 'sine':
+            case 'triangle':
+            case 'sawtooth':
+            case 'square':
+                var freq = node.params[1] ? compileParam(node.params[1]) : undefined;
+                var detune = compileParam(node.params[0], 100);
+                var type = node.call;
+                return function(ctx, out) {
+                    var osc = webAudio.createOscillator();
+                    osc.type = type;
+                    if(freq) {
+                        freq(ctx, osc.frequency);
+                    }
+                    detune(ctx, osc.detune);
+                    osc.start(ctx.start);
+                    osc.stop(ctx.end);
+                    osc.connect(out);
+                };
+            default:
+                throw "Unsupported function '" + node.call + "'";
+            }
+        }
+    }
     
     function sfx(data) {
         if(!webAudio) {
             return function() {};
         }
         var duration = calcDuration(data.body);
+        var buildGraph = compileInput(data.body);
         return function() {
             var time = webAudio.currentTime;
             var ctx = {
                 start: time,
                 end: time + duration
             };
-            compile(ctx, data.body).connect(webAudio.destination);
+            buildGraph(ctx, webAudio.destination);
         };
     }
     
