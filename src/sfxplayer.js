@@ -18,6 +18,8 @@ export default function SfxPlayer(data, webAudio) {
                     param.linearRampToValueAtTime(cmd.slide * scale, time);
                 }
             }
+        } else if(typeof(node) === 'number') {
+            param.value = node;
         } else {
             var input = compile(ctx, node);
             if(scale) {
