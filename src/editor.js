@@ -32,7 +32,7 @@ export default class Editor extends React.Component {
         }
     }
     render() {
-        let style = { width: 600, height: 600 };
+        let style = { width: 600, height: 500 };
         return <div ref='editor' style={style} />
     }
 }

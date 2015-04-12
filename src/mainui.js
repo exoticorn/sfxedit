@@ -6,11 +6,15 @@ import SfxPlayer from './sfxplayer';
 let webAudio = new (window.AudioContext || window.webkitAudioContext)();
 
 export default class MainUI extends React.Component {
+    constructor(props) {
+        super(props);
+        this.state = { output: '' }
+    }
     onPlay(src, cursor) {
         let parseResult = Parser.parse(src);
         if(parseResult.status) {
             let data = parseResult.value;
-            console.log(JSON.stringify(data));
+            this.setState({ output: JSON.stringify(data) });
             let current;
             for(let fx of data) {
                 if(fx.start <= cursor && (!current || fx.start > current.start)) {
@@ -22,10 +26,14 @@ export default class MainUI extends React.Component {
                 sfx[current.name]();
             }
         } else {
-            console.log(Parser.formatError(src, parseResult));
+            this.setState({ output: 'Error:\n\n' + Parser.formatError(src, parseResult) });
         }
     }
     render() {
-        return <Editor onPlay={(src, cursor) => this.onPlay(src, cursor)} />;
+        return <div>
+                 <Editor onPlay={(src, cursor) => this.onPlay(src, cursor)} />
+                 <h2>Output:</h2>
+                 <pre style={{whiteSpace: 'pre-wrap'}}>{this.state.output}</pre>
+               </div>;
     }
 }

@@ -2,7 +2,7 @@ import P from 'parsimmon';
 
 function lexeme(p) { return p.skip(P.optWhitespace); }
 
-var number = lexeme(P.regex(/\d+(\.\d+)?/).map(parseFloat));
+var number = lexeme(P.regex(/-?\d+(\.\d+)?/).map(parseFloat));
 var ident = lexeme(P.regex(/[a-z_]\w*/));
 var lparen = lexeme(P.string('('));
 var rparen = lexeme(P.string(')'));
@@ -11,6 +11,7 @@ var rsquare = lexeme(P.string(']'));
 var comma = lexeme(P.string(','));
 var equals = lexeme(P.string('='));
 var mul = lexeme(P.string('*'));
+var plus = lexeme(P.string('+'));
 var slash = lexeme(P.string('/'));
 var bang = lexeme(P.string('!'));
 function repSep(p, s) {
@@ -28,7 +29,7 @@ function repOp(p, op) {
     });
 }
 
-var expr = P.lazy(() => mulOp);
+var expr = P.lazy(() => addOp);
 var callParams = lparen.then(repSep(expr, comma)).skip(rparen);
 var funCall = P.seq(ident, callParams).map(r => ({ call: r[0], params: r[1] }));
 var sequenceData = P.seq(number, P.seq(bang.or(slash), P.seq(number, comma.then(number))).atLeast(1)).map(r => {
@@ -45,6 +46,7 @@ var sequenceData = P.seq(number, P.seq(bang.or(slash), P.seq(number, comma.then(
 var sequence = lsquare.then(sequenceData).skip(rsquare);
 var atom = funCall.or(sequence).or(number);
 var mulOp = repOp(atom, mul);
+var addOp = repOp(mulOp, plus);
 
 var params = lparen.then(repSep(ident, comma)).skip(rparen.then(equals));
 var sfx = P.seq(ident, params, expr).mark().map(r => ({ name: r.value[0], params: r.value[1], body: r.value[2], start: r.start }));

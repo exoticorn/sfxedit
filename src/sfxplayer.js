@@ -6,6 +6,13 @@ export default function SfxPlayer(data, webAudio) {
         }
     }
 
+    var oneBuffer = webAudio.createBuffer(1, 128, 22050);
+    var oneData = oneBuffer.getChannelData(0);
+    var i;
+    for(i = 0; i < 128; ++i) {
+        oneData[i] = 1;
+    }
+
     function compileParam(ctx, node, param, scale) {
         if(Array.isArray(node)) {
             scale = scale || 1;
@@ -32,8 +39,24 @@ export default function SfxPlayer(data, webAudio) {
         }
     }
 
+    function one(ctx) {
+        if(!ctx.one) {
+            ctx.one = webAudio.createBufferSource();
+            ctx.one.buffer = oneBuffer;
+            ctx.one.loop = true;
+            ctx.one.start(ctx.start);
+            ctx.one.stop(ctx.end);
+        }
+        return ctx.one;
+    }
+
     function compile(ctx, node) {
-        if(node.op) {
+        if(Array.isArray(node) || typeof(node) === 'number') {
+            var result = webAudio.createGain();
+            one(ctx).connect(result);
+            compileParam(ctx, node, result.gain);
+            return result;
+        } else if(node.op) {
             switch(node.op) {
             case '*':
                 var left = compile(ctx, node.left);
@@ -41,13 +64,21 @@ export default function SfxPlayer(data, webAudio) {
                 left.connect(result);
                 compileParam(ctx, node.right, result.gain);
                 return result;
+            case '+':
+                var result = webAudio.createGain();
+                compile(ctx, node.left).connect(result);
+                compile(ctx, node.right).connect(result);
+                return result;
             }
         } else if(node.call) {
             switch(node.call) {
+            case 'sine':
+            case 'triangle':
+            case 'sawtooth':
             case 'square':
                 var result = webAudio.createOscillator();
                 result.type = node.call;
-                result.frequency.value = 440;
+                result.frequency.value = node.params[1] || 440;
                 compileParam(ctx, node.params[0], result.detune, 100);
                 result.start(ctx.start);
                 result.stop(ctx.end);
@@ -70,6 +101,9 @@ export default function SfxPlayer(data, webAudio) {
     }
     
     function sfx(data) {
+        if(!webAudio) {
+            return function() {};
+        }
         var duration = calcDuration(data.body);
         return function() {
             var time = webAudio.currentTime;
