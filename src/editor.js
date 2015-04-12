@@ -24,7 +24,9 @@ export default class Editor extends React.Component {
     onKeyDown(e) {
         if(e.ctrlKey && e.keyCode === 83) {
             if(this.props.onPlay) {
-                this.props.onPlay(this.editor.getValue());
+                let position = this.editor.getCursorPosition();
+                let index = this.editor.getSession().getDocument().positionToIndex(position);
+                this.props.onPlay(this.editor.getValue(), index);
             }
             e.preventDefault();
         }

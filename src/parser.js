@@ -11,7 +11,7 @@ var rsquare = lexeme(P.string(']'));
 var comma = lexeme(P.string(','));
 var equals = lexeme(P.string('='));
 var mul = lexeme(P.string('*'));
-var div = lexeme(P.string('/'));
+var slash = lexeme(P.string('/'));
 var bang = lexeme(P.string('!'));
 function repSep(p, s) {
     var rest = s.then(p).many();
@@ -28,10 +28,10 @@ function repOp(p, op) {
     });
 }
 
-var expr = P.lazy(() => mulDiv);
+var expr = P.lazy(() => mulOp);
 var callParams = lparen.then(repSep(expr, comma)).skip(rparen);
 var funCall = P.seq(ident, callParams).map(r => ({ call: r[0], params: r[1] }));
-var sequenceData = P.seq(number, P.seq(bang.or(div), P.seq(number, comma.then(number))).atLeast(1)).map(r => {
+var sequenceData = P.seq(number, P.seq(bang.or(slash), P.seq(number, comma.then(number))).atLeast(1)).map(r => {
     let result = [{ time: 0, set: r[0] }];
     for(let op of r[1]) {
         if(op[0] === '!') {
@@ -43,12 +43,14 @@ var sequenceData = P.seq(number, P.seq(bang.or(div), P.seq(number, comma.then(nu
     return result;
 });
 var sequence = lsquare.then(sequenceData).skip(rsquare);
-var atom = funCall.or(sequence);
-var mulDiv = repOp(atom, mul.or(div));
+var atom = funCall.or(sequence).or(number);
+var mulOp = repOp(atom, mul);
 
 var params = lparen.then(repSep(ident, comma)).skip(rparen.then(equals));
-var sfx = P.seq(ident, params, expr).map(r => ({ name: r[0], params: r[1], body: r[2] }));
+var sfx = P.seq(ident, params, expr).mark().map(r => ({ name: r.value[0], params: r.value[1], body: r.value[2], start: r.start }));
 
-let parser = sfx;
+var script = sfx.atLeast(1);
+
+let parser = script;
 parser.formatError = P.formatError;
 export default parser;
