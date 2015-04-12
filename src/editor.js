@@ -1,10 +1,15 @@
 import React from 'react';
 import Ace from 'brace';
 
+import 'brace/mode/c_cpp';
+import 'brace/theme/monokai';
+
 export default class Editor extends React.Component {
     componentDidMount() {
         let div = this.refs.editor.getDOMNode();
         this.editor = Ace.edit(div);
+        this.editor.getSession().setMode('ace/mode/c_cpp');
+        this.editor.setTheme('ace/theme/monokai');
         this.editor.$blockScrolling = Infinity;
         let text = window.localStorage.getItem('sfxSource') || '';
         this.editor.setValue(text, -1);
@@ -32,7 +37,7 @@ export default class Editor extends React.Component {
         }
     }
     render() {
-        let style = { width: 600, height: 500 };
+        let style = { width: '100%', height: 500, marginTop: 16 };
         return <div ref='editor' style={style} />
     }
 }
