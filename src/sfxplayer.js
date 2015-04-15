@@ -13,6 +13,49 @@ export default function SfxPlayer(data, webAudio) {
         oneData[i] = 1;
     }
 
+    var NOISE_LENGTH = 65536;
+    var noiseBuffer = webAudio.createBuffer(1, NOISE_LENGTH, 44100);
+    var noiseData = noiseBuffer.getChannelData(0);
+    for(i = 0; i < NOISE_LENGTH; ++i) {
+        noiseData[i] = Math.random() * 2 - 1;
+    }
+
+    function noiseRate(f) {
+        return Math.pow(0.75, (1 - f) * 15);
+    }
+
+    var noiseCurve = new Float32Array(31);
+    for(i = 0; i < 31; ++i) {
+        noiseCurve[i] = noiseRate(Math.max(0, (i-15) / 15));
+    }
+
+    var identityConfig = {
+        value: function(v) { return v; },
+        input: function(i) { return i; }
+    };
+
+    function scaleConfig(scale) {
+        return {
+            value: function(v) { return v * scale; },
+            input: function(i) {
+                return function(ctx, param) {
+                    var gain = webAudio.createGain();
+                    i(ctx, gain);
+                    gain.gain.value = scale;
+                    gain.connect(param);
+                };
+            }
+        };
+    }
+
+    var detuneConfig = scaleConfig(100);
+
+    var noiseConfig = {
+        value: noiseRate,
+        input: function() { throw "noise only supports values or envelopes for input for now"; },
+        exponential: true
+    };
+
     function one(ctx) {
         if(!ctx.one) {
             ctx.one = webAudio.createBufferSource();
@@ -34,42 +77,42 @@ export default function SfxPlayer(data, webAudio) {
                 duration = Math.max(duration, calcDuration(node.params[i]));
             }
         }
-        return duration;
+        return duration / 60;
     }
 
-    function compileParam(node, scale) {
+    function compileParam(node, config) {
+        config = config || identityConfig;
         if(Array.isArray(node)) {
-            scale = scale || 1;
+            for(var i = 0; i < node.length; ++i) {
+                if(node[i].set) {
+                    node[i].set = config.value(node[i].set);
+                } else {
+                    node[i].slide = config.value(node[i].slide);
+                }
+            }
             return function(ctx, param) {
                 for(var i = 0; i < node.length; ++i) {
                     var cmd = node[i];
                     var time = ctx.start + cmd.time / 60;
                     if(cmd.set !== undefined) {
-                        param.setValueAtTime(cmd.set * scale, time);
+                        param.setValueAtTime(cmd.set, time);
+                    } else if(config.exponential) {
+                        param.exponentialRampToValueAtTime(cmd.slide, time);
                     } else {
-                        param.linearRampToValueAtTime(cmd.slide * scale, time);
+                        param.linearRampToValueAtTime(cmd.slide, time);
                     }
                 }
             };
         } else if(typeof(node) === 'number') {
-            var value = node * (scale || 1);
+            var value = config.value(node);
             return function(ctx, param) {
                 param.value = value;
             };
         } else {
-            var input = compileInput(node);
-            if(scale) {
-                return function(ctx, param) {
-                    var gain = webAudio.createGain();
-                    input(ctx, gain);
-                    gain.gain.value = scale;
-                    gain.connect(param);
-                };
-            } else {
-                return function(ctx, param) {
-                    input(ctx, param);
-                };
-            }
+            var input = config.input(compileInput(node));
+            return function(ctx, param) {
+                input(ctx, param);
+            };
         }
     }
 
@@ -110,18 +153,31 @@ export default function SfxPlayer(data, webAudio) {
             case 'sawtooth':
             case 'square':
                 var freq = node.params[1] ? compileParam(node.params[1]) : undefined;
-                var detune = compileParam(node.params[0], 100);
+                var detune = compileParam(node.params[0], detuneConfig);
                 var type = node.call;
                 return function(ctx, out) {
                     var osc = webAudio.createOscillator();
                     osc.type = type;
                     if(freq) {
+                        osc.frequency.value = 0;
                         freq(ctx, osc.frequency);
                     }
                     detune(ctx, osc.detune);
                     osc.start(ctx.start);
                     osc.stop(ctx.end);
                     osc.connect(out);
+                };
+            case 'noise':
+                var freq = compileParam(node.params[0], noiseConfig);
+                return function(ctx, out) {
+                    var noise = webAudio.createBufferSource();
+                    noise.buffer = noiseBuffer;
+                    noise.loop = true;
+                    noise.playbackRate.value = 0;
+                    freq(ctx, noise.playbackRate);
+                    noise.start(ctx.start);
+                    noise.stop(ctx.end);
+                    noise.connect(out);
                 };
             default:
                 throw "Unsupported function '" + node.call + "'";
