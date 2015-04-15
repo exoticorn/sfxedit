@@ -69,7 +69,7 @@ export default function SfxPlayer(data, webAudio) {
 
     function calcDuration(node) {
         if(Array.isArray(node)) {
-            return node[node.length - 1].time;
+            return node[node.length - 1].time / 60;
         }
         var duration = node.left ? Math.max(calcDuration(node.left), calcDuration(node.right)) : 0;
         if(node.params) {
@@ -77,7 +77,7 @@ export default function SfxPlayer(data, webAudio) {
                 duration = Math.max(duration, calcDuration(node.params[i]));
             }
         }
-        return duration / 60;
+        return duration;
     }
 
     function compileParam(node, config) {
@@ -105,9 +105,10 @@ export default function SfxPlayer(data, webAudio) {
             };
         } else if(typeof(node) === 'number') {
             var value = config.value(node);
-            return function(ctx, param) {
-                param.value = value;
-            };
+            return function(ctx, param) { param.value = value; };
+        } else if(node.rmin !== undefined) {
+            var value = config.value(node.rmin + Math.random() * (node.rmax - node.rmin));
+            return function(ctx, param) { param.value = value; }
         } else {
             var input = config.input(compileInput(node));
             return function(ctx, param) {
@@ -117,7 +118,7 @@ export default function SfxPlayer(data, webAudio) {
     }
 
     function compileInput(node) {
-        if(Array.isArray(node) || typeof(node) === 'number') {
+        if(Array.isArray(node) || typeof(node) === 'number' || node.rmin !== undefined) {
             var param = compileParam(node);
             return function(ctx, out) {
                 var gain = webAudio.createGain();

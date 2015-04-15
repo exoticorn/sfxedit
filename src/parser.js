@@ -1,6 +1,7 @@
 import P from 'parsimmon';
 
-function lexeme(p) { return p.skip(P.optWhitespace); }
+var whitespace = P.whitespace.or(P.regex(/#[^\n]*\n/)).many();
+function lexeme(p) { return p.skip(whitespace); }
 
 var number = lexeme(P.regex(/-?\d+(\.\d+)?/).map(parseFloat));
 var ident = lexeme(P.regex(/[a-z_]\w*/));
@@ -14,6 +15,8 @@ var mul = lexeme(P.string('*'));
 var plus = lexeme(P.string('+'));
 var slash = lexeme(P.string('/'));
 var bang = lexeme(P.string('!'));
+var lcurly = lexeme(P.string('{'));
+var rcurly = lexeme(P.string('}'));
 function repSep(p, s) {
     var rest = s.then(p).many();
     var list = P.seq(p, rest).map(r => r.slice(0, 1).concat(r[1]));
@@ -44,7 +47,8 @@ var sequenceData = P.seq(number, P.seq(bang.or(slash), P.seq(number, comma.then(
     return result;
 });
 var sequence = lsquare.then(sequenceData).skip(rsquare);
-var atom = funCall.or(sequence).or(number);
+var random = lcurly.then(P.seq(number, comma, number).map(r => ({ rmin: r[0], rmax: r[2] }))).skip(rcurly);
+var atom = funCall.or(sequence).or(number).or(random);
 var mulOp = repOp(atom, mul);
 var addOp = repOp(mulOp, plus);
 
@@ -53,6 +57,6 @@ var sfx = P.seq(ident, params, expr).mark().map(r => ({ name: r.value[0], params
 
 var script = sfx.atLeast(1);
 
-let parser = script;
+let parser = whitespace.then(script);
 parser.formatError = P.formatError;
 export default parser;
