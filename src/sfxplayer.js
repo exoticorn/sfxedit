@@ -69,7 +69,7 @@ export default function SfxPlayer(data, webAudio) {
 
     function calcDuration(node) {
         if(Array.isArray(node)) {
-            return node[node.length - 1].time / 60;
+            return constMax(node[node.length - 1].time) / 60;
         }
         var duration = node.left ? Math.max(calcDuration(node.left), calcDuration(node.right)) : 0;
         if(node.params) {
@@ -80,26 +80,56 @@ export default function SfxPlayer(data, webAudio) {
         return duration;
     }
 
+    function constMax(expr) {
+        if(typeof(expr) === 'number') {
+            return expr;
+        } else if(expr.rmin !== undefined) {
+            return constMax(expr.rmax);
+        } else if(expr.op === '*') {
+            return constMax(expr.left) * constMax(expr.right);
+        } else if(expr.op === '+') {
+            return constMax(expr.left) * constMax(expr.right);
+        }
+        throw "Failed to eval const '" + JSON.stringify(expr) + "'";
+    }
+
+    function compileConst(expr) {
+        if(typeof(expr) === 'number') {
+            return function() { return expr; };
+        } else if(expr.rmin !== undefined) {
+            var min = compileConst(expr.rmin), max = compileConst(expr.rmax);
+            return function() { var a = min(), b = max(); return a + Math.random() * (b-a); };
+        } else if(expr.op === '*') {
+            var left = compileConst(expr.left), right = compileConst(expr.right);
+            return function() { return left() * right(); };
+        } else if(expr.op === '+') {
+            var left = compileConst(expr.left), right = compileConst(expr.right);
+            return function() { return left() + right(); };
+        }
+        throw "Failed to compile const '" + JSON.stringify(expr) + "'";
+    }
+
     function compileParam(node, config) {
         config = config || identityConfig;
         if(Array.isArray(node)) {
             for(var i = 0; i < node.length; ++i) {
+                node[i].time = compileConst(node[i].time);
                 if(node[i].set) {
-                    node[i].set = config.value(node[i].set);
+                    node[i].set = compileConst(node[i].set);
                 } else {
-                    node[i].slide = config.value(node[i].slide);
+                    node[i].slide = compileConst(node[i].slide);
                 }
             }
             return function(ctx, param) {
                 for(var i = 0; i < node.length; ++i) {
                     var cmd = node[i];
-                    var time = ctx.start + cmd.time / 60;
+                    var time = ctx.start + cmd.time() / 60;
                     if(cmd.set !== undefined) {
-                        param.setValueAtTime(cmd.set, time);
+                        param.setValueAtTime(config.value(cmd.set()), time);
                     } else if(config.exponential) {
-                        param.exponentialRampToValueAtTime(cmd.slide, time);
+                        param.exponentialRampToValueAtTime(config.value(cmd.slide()), time);
                     } else {
-                        param.linearRampToValueAtTime(cmd.slide, time);
+                        param.linearRampToValueAtTime(config.value(cmd.slide()), time);
                     }
                 }
             };
@@ -107,8 +137,8 @@ export default function SfxPlayer(data, webAudio) {
             var value = config.value(node);
             return function(ctx, param) { param.value = value; };
         } else if(node.rmin !== undefined) {
-            var value = config.value(node.rmin + Math.random() * (node.rmax - node.rmin));
-            return function(ctx, param) { param.value = value; }
+            var value = compileConst(node);
+            return function(ctx, param) { param.value = config.value(value()); }
         } else {
             var input = config.input(compileInput(node));
             return function(ctx, param) {

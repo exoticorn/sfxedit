@@ -32,10 +32,11 @@ function repOp(p, op) {
     });
 }
 
-var expr = P.lazy(() => addOp);
+var expr = P.lazy('an expression', () => addOp);
+var constExpr = P.lazy('a const expression', () => constAddOp);
 var callParams = lparen.then(repSep(expr, comma)).skip(rparen);
 var funCall = P.seq(ident, callParams).map(r => ({ call: r[0], params: r[1] }));
-var sequenceData = P.seq(number, P.seq(bang.or(slash), P.seq(number, comma.then(number))).atLeast(1)).map(r => {
+var sequenceData = P.seq(constExpr, P.seq(bang.or(slash), P.seq(constExpr, comma.then(constExpr))).atLeast(1)).map(r => {
     let result = [{ time: 0, set: r[0] }];
     for(let op of r[1]) {
         if(op[0] === '!') {
@@ -47,10 +48,14 @@ var sequenceData = P.seq(number, P.seq(bang.or(slash), P.seq(number, comma.then(
     return result;
 });
 var sequence = lsquare.then(sequenceData).skip(rsquare);
-var random = lcurly.then(P.seq(number, comma, number).map(r => ({ rmin: r[0], rmax: r[2] }))).skip(rcurly);
-var atom = funCall.or(sequence).or(number).or(random);
+var random = lcurly.then(P.seq(constExpr, comma, constExpr).map(r => ({ rmin: r[0], rmax: r[2] }))).skip(rcurly);
+var atom = funCall.or(sequence).or(number).or(random).or(lparen.then(expr).skip(rparen));
 var mulOp = repOp(atom, mul);
 var addOp = repOp(mulOp, plus);
+
+var constAtom = number.or(random).or(lparen.then(constExpr).skip(rparen));
+var constMulOp = repOp(constAtom, plus);
+var constAddOp = repOp(constMulOp, plus);
 
 var params = lparen.then(repSep(ident, comma)).skip(rparen.then(equals));
 var sfx = P.seq(ident, params, expr).mark().map(r => ({ name: r.value[0], params: r.value[1], body: r.value[2], start: r.start }));
