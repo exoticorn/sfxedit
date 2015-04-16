@@ -69,7 +69,7 @@ export default function SfxPlayer(data, webAudio) {
 
     function calcDuration(node) {
         if(Array.isArray(node)) {
-            return node[node.length - 1].time / 60;
+            return constMax(node[node.length - 1].time) / 60;
         }
         var duration = node.left ? Math.max(calcDuration(node.left), calcDuration(node.right)) : 0;
         if(node.params) {
@@ -80,35 +80,69 @@ export default function SfxPlayer(data, webAudio) {
         return duration;
     }
 
+    function constMax(expr) {
+        if(typeof(expr) === 'number') {
+            return expr;
+        } else if(expr.rmin !== undefined) {
+            return constMax(expr.rmax);
+        } else if(expr.op === '*') {
+            return constMax(expr.left) * constMax(expr.right);
+        } else if(expr.op === '+') {
+            return constMax(expr.left) * constMax(expr.right);
+        }
+        throw "Failed to eval const '" + JSON.stringify(expr) + "'";
+    }
+
+    function compileConst(expr) {
+        if(typeof(expr) === 'number') {
+            return function() { return expr; };
+        } else if(typeof(expr) === 'string') {
+            return function(ctx) { return ctx.params[expr]; };
+        } else if(expr.rmin !== undefined) {
+            var min = compileConst(expr.rmin), max = compileConst(expr.rmax);
+            return function(ctx) { var a = min(ctx), b = max(ctx); return a + Math.random() * (b-a); };
+        } else if(expr.op === '*') {
+            var left = compileConst(expr.left), right = compileConst(expr.right);
+            return function(ctx) { return left(ctx) * right(ctx); };
+        } else if(expr.op === '+') {
+            var left = compileConst(expr.left), right = compileConst(expr.right);
+            return function(ctx) { return left(ctx) + right(ctx); };
+        }
+        throw "Failed to compile const '" + JSON.stringify(expr) + "'";
+    }
+
     function compileParam(node, config) {
         config = config || identityConfig;
         if(Array.isArray(node)) {
             for(var i = 0; i < node.length; ++i) {
-                if(node[i].set) {
-                    node[i].set = config.value(node[i].set);
+                node[i].time = compileConst(node[i].time);
+                if(node[i].set !== undefined) {
+                    node[i].set = compileConst(node[i].set);
                 } else {
-                    node[i].slide = config.value(node[i].slide);
+                    node[i].slide = compileConst(node[i].slide);
                 }
             }
             return function(ctx, param) {
                 for(var i = 0; i < node.length; ++i) {
                     var cmd = node[i];
-                    var time = ctx.start + cmd.time / 60;
+                    var time = ctx.start + cmd.time(ctx) / 60;
                     if(cmd.set !== undefined) {
-                        param.setValueAtTime(cmd.set, time);
+                        param.setValueAtTime(config.value(cmd.set(ctx)), time);
                     } else if(config.exponential) {
-                        param.exponentialRampToValueAtTime(cmd.slide, time);
+                        param.exponentialRampToValueAtTime(config.value(cmd.slide(ctx)), time);
                     } else {
-                        param.linearRampToValueAtTime(cmd.slide, time);
+                        param.linearRampToValueAtTime(config.value(cmd.slide(ctx)), time);
                     }
                 }
             };
         } else if(typeof(node) === 'number') {
             var value = config.value(node);
             return function(ctx, param) { param.value = value; };
+        } else if(typeof(node) === 'string') {
+            return function(ctx, param) { param.value = config.value(ctx.params[node]); };
         } else if(node.rmin !== undefined) {
-            var value = config.value(node.rmin + Math.random() * (node.rmax - node.rmin));
-            return function(ctx, param) { param.value = value; }
+            var value = compileConst(node);
+            return function(ctx, param) { param.value = config.value(value(ctx)); }
         } else {
             var input = config.input(compileInput(node));
             return function(ctx, param) {
@@ -118,7 +152,7 @@ export default function SfxPlayer(data, webAudio) {
     }
 
     function compileInput(node) {
-        if(Array.isArray(node) || typeof(node) === 'number' || node.rmin !== undefined) {
+        if(Array.isArray(node) || typeof(node) === 'number' || typeof(node) === 'string' || node.rmin !== undefined) {
             var param = compileParam(node);
             return function(ctx, out) {
                 var gain = webAudio.createGain();
@@ -192,11 +226,21 @@ export default function SfxPlayer(data, webAudio) {
         }
         var duration = calcDuration(data.body);
         var buildGraph = compileInput(data.body);
-        return function() {
+        return function(paramsIn) {
+            paramsIn = paramsIn || {};
+            var params = {};
+            for(var param in data.params) {
+                if(paramsIn[param] === undefined) {
+                    params[param] = compileConst(data.params[param])();
+                } else {
+                    params[param] = paramsIn[param];
+                }
+            }
             var time = webAudio.currentTime;
             var ctx = {
                 start: time,
-                end: time + duration
+                end: time + duration,
+                params: params
             };
             buildGraph(ctx, webAudio.destination);
         };
