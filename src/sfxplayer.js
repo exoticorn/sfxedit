@@ -96,15 +96,17 @@ export default function SfxPlayer(data, webAudio) {
     function compileConst(expr) {
         if(typeof(expr) === 'number') {
             return function() { return expr; };
+        } else if(typeof(expr) === 'string') {
+            return function(ctx) { return ctx.params[expr]; };
         } else if(expr.rmin !== undefined) {
             var min = compileConst(expr.rmin), max = compileConst(expr.rmax);
-            return function() { var a = min(), b = max(); return a + Math.random() * (b-a); };
+            return function(ctx) { var a = min(ctx), b = max(ctx); return a + Math.random() * (b-a); };
         } else if(expr.op === '*') {
             var left = compileConst(expr.left), right = compileConst(expr.right);
-            return function() { return left() * right(); };
+            return function(ctx) { return left(ctx) * right(ctx); };
         } else if(expr.op === '+') {
             var left = compileConst(expr.left), right = compileConst(expr.right);
-            return function() { return left() + right(); };
+            return function(ctx) { return left(ctx) + right(ctx); };
         }
         throw "Failed to compile const '" + JSON.stringify(expr) + "'";
     }
@@ -114,7 +116,7 @@ export default function SfxPlayer(data, webAudio) {
         if(Array.isArray(node)) {
             for(var i = 0; i < node.length; ++i) {
                 node[i].time = compileConst(node[i].time);
-                if(node[i].set) {
+                if(node[i].set !== undefined) {
                     node[i].set = compileConst(node[i].set);
                 } else {
                     node[i].slide = compileConst(node[i].slide);
@@ -123,22 +125,24 @@ export default function SfxPlayer(data, webAudio) {
             return function(ctx, param) {
                 for(var i = 0; i < node.length; ++i) {
                     var cmd = node[i];
-                    var time = ctx.start + cmd.time() / 60;
+                    var time = ctx.start + cmd.time(ctx) / 60;
                     if(cmd.set !== undefined) {
-                        param.setValueAtTime(config.value(cmd.set()), time);
+                        param.setValueAtTime(config.value(cmd.set(ctx)), time);
                     } else if(config.exponential) {
-                        param.exponentialRampToValueAtTime(config.value(cmd.slide()), time);
+                        param.exponentialRampToValueAtTime(config.value(cmd.slide(ctx)), time);
                     } else {
-                        param.linearRampToValueAtTime(config.value(cmd.slide()), time);
+                        param.linearRampToValueAtTime(config.value(cmd.slide(ctx)), time);
                     }
                 }
             };
         } else if(typeof(node) === 'number') {
             var value = config.value(node);
             return function(ctx, param) { param.value = value; };
+        } else if(typeof(node) === 'string') {
+            return function(ctx, param) { param.value = config.value(ctx.params[node]); };
         } else if(node.rmin !== undefined) {
             var value = compileConst(node);
-            return function(ctx, param) { param.value = config.value(value()); }
+            return function(ctx, param) { param.value = config.value(value(ctx)); }
         } else {
             var input = config.input(compileInput(node));
             return function(ctx, param) {
@@ -148,7 +152,7 @@ export default function SfxPlayer(data, webAudio) {
     }
 
     function compileInput(node) {
-        if(Array.isArray(node) || typeof(node) === 'number' || node.rmin !== undefined) {
+        if(Array.isArray(node) || typeof(node) === 'number' || typeof(node) === 'string' || node.rmin !== undefined) {
             var param = compileParam(node);
             return function(ctx, out) {
                 var gain = webAudio.createGain();
@@ -222,11 +226,21 @@ export default function SfxPlayer(data, webAudio) {
         }
         var duration = calcDuration(data.body);
         var buildGraph = compileInput(data.body);
-        return function() {
+        return function(paramsIn) {
+            paramsIn = paramsIn || {};
+            var params = {};
+            for(var param in data.params) {
+                if(paramsIn[param] === undefined) {
+                    params[param] = compileConst(data.params[param])();
+                } else {
+                    params[param] = paramsIn[param];
+                }
+            }
             var time = webAudio.currentTime;
             var ctx = {
                 start: time,
-                end: time + duration
+                end: time + duration,
+                params: params
             };
             buildGraph(ctx, webAudio.destination);
         };

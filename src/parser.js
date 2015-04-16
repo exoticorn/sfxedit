@@ -49,15 +49,22 @@ var sequenceData = P.seq(constExpr, P.seq(bang.or(slash), P.seq(constExpr, comma
 });
 var sequence = lsquare.then(sequenceData).skip(rsquare);
 var random = lcurly.then(P.seq(constExpr, comma, constExpr).map(r => ({ rmin: r[0], rmax: r[2] }))).skip(rcurly);
-var atom = funCall.or(sequence).or(number).or(random).or(lparen.then(expr).skip(rparen));
+var atom = funCall.or(ident).or(sequence).or(number).or(random).or(lparen.then(expr).skip(rparen));
 var mulOp = repOp(atom, mul);
 var addOp = repOp(mulOp, plus);
 
-var constAtom = number.or(random).or(lparen.then(constExpr).skip(rparen));
+var constAtom = ident.or(number).or(random).or(lparen.then(constExpr).skip(rparen));
 var constMulOp = repOp(constAtom, plus);
 var constAddOp = repOp(constMulOp, plus);
 
-var params = lparen.then(repSep(ident, comma)).skip(rparen.then(equals));
+var param = P.seq(ident.skip(equals), constExpr);
+var params = lparen.then(repSep(param, comma)).skip(rparen.then(equals)).map(ps => {
+    let pobj = {};
+    for(let p of ps) {
+        pobj[p[0]] = p[1];
+    }
+    return pobj;
+});
 var sfx = P.seq(ident, params, expr).mark().map(r => ({ name: r.value[0], params: r.value[1], body: r.value[2], start: r.start }));
 
 var script = sfx.atLeast(1);
